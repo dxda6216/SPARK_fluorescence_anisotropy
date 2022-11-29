@@ -1,2 +1,2 @@
-# SPARK_fluorescence_anisotropy
+# SPARK Fluorescence Anisotropy
 Script to pre-process a SPARK fluorescence anisotropy data file (Excel file)
