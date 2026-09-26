@@ -1,0 +1,2 @@
+# Only needed to build the Windows EXE
+pyinstaller>=6.6
