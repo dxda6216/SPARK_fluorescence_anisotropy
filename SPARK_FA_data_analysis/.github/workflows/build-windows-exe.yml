@@ -1,0 +1,89 @@
+# Builds AnisotropyAnalyzer.exe (Windows, single file, no console window).
+#
+#  - Every push to main / every pull request: build + test; the EXE is kept as a
+#    downloadable "artifact" of the run (Actions tab -> the run -> Artifacts).
+#  - Pushing a tag such as v1.0.0: additionally publishes a GitHub Release with the EXE.
+#  - "Run workflow" button on the Actions tab: build on demand.
+
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write   # needed to create the Release for tags
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-build.txt
+
+      - name: Install the libraries
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-build.txt
+          pip list
+
+      - name: Test the script (before building)
+        run: python anisotropy_analyzer_app.py --selftest selftest-script
+
+      - name: Build the EXE with PyInstaller
+        run: >
+          pyinstaller --noconfirm --clean
+          --onefile --windowed
+          --name AnisotropyAnalyzer
+          --hidden-import matplotlib.backends.backend_tkagg
+          --exclude-module PyQt5 --exclude-module PyQt6
+          --exclude-module PySide2 --exclude-module PySide6
+          --exclude-module IPython --exclude-module pytest
+          anisotropy_analyzer_app.py
+
+      - name: Test the EXE
+        shell: pwsh
+        run: |
+          # A windowed EXE returns immediately unless we wait for it.
+          $p = Start-Process -FilePath "dist\AnisotropyAnalyzer.exe" `
+                             -ArgumentList "--selftest", "selftest-exe" -Wait -PassThru
+          Get-Content "selftest-exe\selftest.log"
+          if ($p.ExitCode -ne 0) { Write-Error "Self-test of the EXE failed"; exit 1 }
+          "EXE size: {0:N1} MB" -f ((Get-Item "dist\AnisotropyAnalyzer.exe").Length / 1MB)
+
+      - name: Upload the EXE (artifact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: AnisotropyAnalyzer-windows
+          path: dist/AnisotropyAnalyzer.exe
+          retention-days: 30
+
+      - name: Upload the self-test output (for checking)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selftest-output
+          path: |
+            selftest-script/
+            selftest-exe/
+          retention-days: 7
+
+      - name: Publish a Release (tags v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/AnisotropyAnalyzer.exe
+          generate_release_notes: true
